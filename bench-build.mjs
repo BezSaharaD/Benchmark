@@ -79,14 +79,18 @@ function subdirs(relParent) {
 // ───────── авто-детект приложения / конфига / пакетов / next-rspack ─────────
 function detectApp() {
   if (arg('app')) return arg('app');
+  const exts = ['mjs', 'ts', 'js', 'cjs', 'mts', 'cts'];
   const cands = ['apps/main', 'apps/web', ...subdirs('apps'), '.'];
   for (const c of cands) {
-    if (existsSync(join(ROOT, c, 'next.config.mjs'))) return c.replace(/\\/g, '/');
+    for (const e of exts) {
+      if (existsSync(join(ROOT, c, `next.config.${e}`))) return c.replace(/\\/g, '/');
+    }
   }
-  return 'apps/main';
+  return null; // Next-конфиг нигде не найден
 }
 const APP_REL = detectApp();
-const APP = join(ROOT, APP_REL);
+const NO_APP = !APP_REL;
+const APP = APP_REL ? join(ROOT, APP_REL) : ROOT; // placeholder; реальная проверка — в main()
 const CFG = join(APP, 'next.config.mjs');
 const BAK = join(APP, 'next.config.bench-real.mjs');
 const STATIC = join(APP, DIST, 'static');
@@ -128,10 +132,11 @@ function detectWorkspacePkgs() {
 }
 const WS_PKGS = detectWorkspacePkgs();
 
-const REL =
-  APP_REL.split('/')
-    .map(() => '..')
-    .join('/') || '.';
+const REL = APP_REL
+  ? APP_REL.split('/')
+      .map(() => '..')
+      .join('/') || '.'
+  : '.';
 
 const MINIMAL_CONFIG = `// ВРЕМЕННЫЙ минимальный конфиг (bench-build). Восстанавливается автоматически.
 import { fileURLToPath } from 'node:url';
@@ -425,6 +430,18 @@ const pad = (s, n) => String(s).padEnd(n);
 const padL = (s, n) => String(s).padStart(n);
 
 async function main() {
+  // guard: Next-приложение не найдено → чистый отказ (не выдумываем путь, не пишем никуда)
+  if (NO_APP) {
+    console.error(
+      '✖ не нашёл next.config.* в apps/* или корне.\n' +
+        '  Это Next-репозиторий? Запусти из его корня или укажи --app=<путь-к-приложению>.'
+    );
+    process.exit(1);
+  }
+  if (!existsSync(APP)) {
+    console.error(`✖ папка приложения не найдена: ${APP_REL} (проверь --app=).`);
+    process.exit(1);
+  }
   // guard: чужой тип конфига без .mjs → не лезем (иначе подмена .mjs сломает билд)
   if (OTHER_CFG && !HAS_MJS) {
     console.error(
